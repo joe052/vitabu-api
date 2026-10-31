@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -10,13 +11,39 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { publicUserSelect } from '../users/users.select';
 import { SignInDto, SignUpDto } from './dto';
 import type { JwtPayload } from './strategies/jwt.strategy';
+import { SupabaseService } from '../supabase/supabase.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private supabaseService: SupabaseService,
   ) {}
+
+  /**Function to register user */
+  async register(dto: SignUpDto) {
+    /**Instantiate supabase */
+    const supabaseAdmin = this.supabaseService.getAdminClient();
+
+    /**Create user */
+    const { data, error } = await supabaseAdmin.auth.admin.createUser({
+      email: dto.email,
+      password: dto.password,
+    });
+
+    if (error || !data?.user) {
+      /**Supabase returns a 422 for duplicate emails */
+      if (error?.status === 422) {
+        throw new ConflictException('A user with this email already exists.');
+      }
+      throw new InternalServerErrorException(
+        `Could not create user: ${error?.message ?? 'unknown error'}`,
+      );
+    }
+
+    return data.user;
+  }
 
   async signUp({ password, ...profile }: SignUpDto) {
     const hash = await argon.hash(password);
