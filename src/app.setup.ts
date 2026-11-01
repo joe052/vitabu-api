@@ -5,7 +5,6 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { join } from 'node:path';
 import {
-  Environment,
   type EnvironmentVariables,
   isSwaggerEnabled,
 } from './config/env.validation';
@@ -19,8 +18,6 @@ export const PUBLIC_DIR = join(__dirname, '..', 'public');
  */
 export function configureApp(app: NestExpressApplication) {
   const config = app.get(ConfigService<EnvironmentVariables, true>);
-  const isProduction =
-    config.get('NODE_ENV', { infer: true }) === Environment.Production;
 
   if (config.get('TRUST_PROXY', { infer: true })) {
     app.set('trust proxy', 1);
@@ -28,13 +25,9 @@ export function configureApp(app: NestExpressApplication) {
 
   app.use(helmet());
 
-  const origins = (config.get('CORS_ORIGINS', { infer: true }) ?? '')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
+  // Hardcoded for now; CORS_ORIGINS in .env is ignored.
   app.enableCors({
-    // No explicit list: reflect any origin in dev, deny cross-origin in prod.
-    origin: origins.length > 0 ? origins : !isProduction,
+    origin: 'http://localhost:3000',
     credentials: true,
   });
 

@@ -18,17 +18,33 @@ export class SupabaseService {
   /** Service-role client — bypasses RLS. Server-side use only. */
   getAdminClient(): SupabaseClient {
     if (!this.adminClient) {
-      const url = this.config.get('SUPABASE_URL', { infer: true });
-      const key = this.config.get('SUPABASE_SERVICE_ROLE_KEY', { infer: true });
-      if (!url || !key) {
-        throw new Error(
-          'Supabase is not configured: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY',
-        );
-      }
+      const { url, key } = this.credentials();
       this.adminClient = createClient(url, key, {
         auth: { autoRefreshToken: false, persistSession: false },
       });
     }
     return this.adminClient;
+  }
+
+  /**
+   * Fresh client for signing users in. Kept separate from the shared admin
+   * client so a user's session never replaces the service-role credentials.
+   */
+  createAuthClient(): SupabaseClient {
+    const { url, key } = this.credentials();
+    return createClient(url, key, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+  }
+
+  private credentials() {
+    const url = this.config.get('SUPABASE_URL', { infer: true });
+    const key = this.config.get('SUPABASE_SERVICE_ROLE_KEY', { infer: true });
+    if (!url || !key) {
+      throw new Error(
+        'Supabase is not configured: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY',
+      );
+    }
+    return { url, key };
   }
 }

@@ -2,10 +2,10 @@ import {
   ConflictException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import * as argon from 'argon2';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { publicUserSelect } from '../users/users.select';
@@ -15,21 +15,28 @@ import { SupabaseService } from '../supabase/supabase.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private supabaseService: SupabaseService,
   ) {}
 
-  /**Function to register user */
-  async register(dto: SignUpDto) {
+  /**
+   * Registers the user in Supabase Auth, then in the local DB linked by
+   * `supabaseUserId`. Supabase can't join a DB transaction, so if the local
+   * insert fails the Supabase user is deleted again to avoid an orphan.
+   */
+  async register({ password, ...profile }: SignUpDto) {
     /**Instantiate supabase */
     const supabaseAdmin = this.supabaseService.getAdminClient();
 
     /**Create user */
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
-      email: dto.email,
-      password: dto.password,
+      email: profile.email,
+      email_confirm: true,
+      password,
     });
 
     if (error || !data?.user) {
@@ -42,33 +49,54 @@ export class AuthService {
       );
     }
 
-    return data.user;
-  }
-
-  async signUp({ password, ...profile }: SignUpDto) {
-    const hash = await argon.hash(password);
+    const supabaseUserId = data.user.id;
 
     try {
       return await this.prisma.user.create({
-        data: { ...profile, hash },
+        data: { ...profile, supabaseUserId },
         select: publicUserSelect,
       });
     } catch (error) {
+      /**Roll back the Supabase user so both stores stay in sync */
+      const { error: deleteError } =
+        await supabaseAdmin.auth.admin.deleteUser(supabaseUserId);
+      if (deleteError) {
+        this.logger.error(
+          `Orphaned Supabase user ${supabaseUserId}: ${deleteError.message}`,
+        );
+      }
+
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        throw new ConflictException('Email is already registered');
+        throw new ConflictException('A user with this email already exists.');
       }
       throw error;
     }
   }
 
+  /** Verifies the password with Supabase Auth, then issues the API's own JWT. */
   async signIn({ email, password }: SignInDto) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const { data, error } = await this.supabaseService
+      .createAuthClient()
+      .auth.signInWithPassword({ email, password });
 
-    // Same error for unknown email and wrong password, to avoid account enumeration.
-    if (!user || !(await argon.verify(user.hash, password))) {
+    if (error || !data?.user) {
+      /**Anything other than a 4xx is Supabase being unavailable, not bad credentials */
+      if (!error?.status || error.status >= 500) {
+        throw new InternalServerErrorException(
+          `Could not sign in: ${error?.message ?? 'unknown error'}`,
+        );
+      }
+      // Same error for unknown email and wrong password, to avoid account enumeration.
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { supabaseUserId: data.user.id },
+    });
+    if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
 

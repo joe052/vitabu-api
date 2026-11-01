@@ -1,16 +1,16 @@
 import { Test } from '@nestjs/testing';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import * as argon from 'argon2';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { Prisma } from '../src/generated/prisma/client';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { SupabaseService } from '../src/modules/supabase/supabase.service';
 
 /**
  * Boots the real AppModule (guards, pipes, filters, versioning) with the
- * database replaced by an in-memory mock, so it runs without Postgres.
+ * database and Supabase replaced by in-memory mocks, so it runs offline.
  */
 describe('App (e2e)', () => {
   let app: NestExpressApplication;
@@ -21,6 +21,7 @@ describe('App (e2e)', () => {
     email: 'alex@example.com',
     firstName: 'Alex',
     lastName: null,
+    supabaseUserId: '3f1c2b9e-8a4d-4e2f-9c1a-7b6d5e4f3a21',
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -39,10 +40,32 @@ describe('App (e2e)', () => {
     },
   };
 
+  const supabaseUser = {
+    data: { user: { id: user.supabaseUserId } },
+    error: null,
+  };
+  const supabase = {
+    getAdminClient: () => ({
+      auth: {
+        admin: {
+          createUser: jest.fn().mockResolvedValue(supabaseUser),
+          deleteUser: jest.fn().mockResolvedValue({ error: null }),
+        },
+      },
+    }),
+    createAuthClient: () => ({
+      auth: {
+        signInWithPassword: jest.fn().mockResolvedValue(supabaseUser),
+      },
+    }),
+  };
+
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService)
       .useValue(prisma)
+      .overrideProvider(SupabaseService)
+      .useValue(supabase)
       .compile();
 
     app = moduleRef.createNestApplication<NestExpressApplication>();
@@ -92,7 +115,7 @@ describe('App (e2e)', () => {
       .send({ email: 'not-an-email', password: 'short', isAdmin: true })
       .expect(400));
 
-  it('signs up without exposing the password hash', async () => {
+  it('signs up and links the Supabase user', async () => {
     prisma.user.create.mockResolvedValueOnce(user);
 
     const { body } = await request(server)
@@ -100,21 +123,18 @@ describe('App (e2e)', () => {
       .send({ email: 'Alex@Example.com ', password: 'Password123!' })
       .expect(201);
 
-    expect(body).not.toHaveProperty('hash');
-    expect(prisma.user.create.mock.calls[0][0].data.email).toBe(
-      'alex@example.com',
-    );
+    expect(body).not.toHaveProperty('password');
+    expect(prisma.user.create.mock.calls[0][0].data).toMatchObject({
+      email: 'alex@example.com',
+      supabaseUserId: user.supabaseUserId,
+    });
   });
 
   describe('with a signed-in user', () => {
     let token: string;
 
     beforeAll(async () => {
-      const hash = await argon.hash('Password123!');
-      // signIn reads the full row; JwtStrategy reads the public projection.
-      prisma.user.findUnique.mockImplementation((args: { select?: unknown }) =>
-        args.select ? user : { ...user, hash },
-      );
+      prisma.user.findUnique.mockResolvedValue(user);
 
       const { body } = await request(server)
         .post('/api/v1/auth/signin')
@@ -130,7 +150,6 @@ describe('App (e2e)', () => {
         .expect(200)
         .expect(({ body }) => {
           expect(body.id).toBe(user.id);
-          expect(body).not.toHaveProperty('hash');
         }));
 
     it('GET /api/v1/bookmarks returns a paginated list', () =>

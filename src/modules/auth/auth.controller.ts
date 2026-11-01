@@ -22,20 +22,17 @@ export class AuthController {
 
   /** Register a new user account */
   @ApiCreatedResponse({
-    description: 'User created in Supabase Auth.',
+    description: 'User created in Supabase Auth and the local database.',
     schema: {
       type: 'object',
       example: {
-        id: '3f1c2b9e-8a4d-4e2f-9c1a-7b6d5e4f3a21',
-        aud: 'authenticated',
-        role: 'authenticated',
+        id: '9b2e4c7a-1d3f-4a6b-8c5e-2f7a9d1b3c4e',
         email: 'jane.doe@example.com',
-        email_confirmed_at: null,
-        app_metadata: { provider: 'email', providers: ['email'] },
-        user_metadata: {},
-        identities: [],
-        created_at: '2026-10-29T12:00:00.000Z',
-        updated_at: '2026-10-29T12:00:00.000Z',
+        firstName: 'Jane',
+        lastName: 'Doe',
+        supabaseUserId: '3f1c2b9e-8a4d-4e2f-9c1a-7b6d5e4f3a21',
+        createdAt: '2026-10-29T12:00:00.000Z',
+        updatedAt: '2026-10-29T12:00:00.000Z',
       },
     },
   })

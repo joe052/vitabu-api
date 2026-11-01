@@ -24,7 +24,7 @@ cp .env.example .env          # then set JWT_SECRET
 npm install                   # also generates the Prisma client
 npm run db:up                 # start PostgreSQL in Docker
 npm run prisma:deploy         # apply migrations
-npm run prisma:seed           # optional: demo users (password: Password123!)
+npm run prisma:seed           # optional: demo data (seeded users have no Supabase login)
 npm run start:dev
 ```
 

@@ -1,10 +1,6 @@
 import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
-import * as argon from 'argon2';
 import { PrismaClient } from '../../src/generated/prisma/client';
-
-/** Shared password for all seeded accounts — development only. */
-const SEED_PASSWORD = 'Password123!';
 
 if (process.env.NODE_ENV === 'production') {
   console.error(
@@ -25,12 +21,9 @@ async function seed() {
   await prisma.book.deleteMany();
   await prisma.author.deleteMany();
 
-  const hash = await argon.hash(SEED_PASSWORD);
-
   await prisma.user.create({
     data: {
       email: 'alex@example.com',
-      hash,
       firstName: 'Alex',
       lastName: 'Anderson',
       bookmarks: {
@@ -53,7 +46,6 @@ async function seed() {
   await prisma.user.create({
     data: {
       email: 'sarah@example.com',
-      hash,
       firstName: 'Sarah',
       lastName: 'Jenkins',
       bookmarks: {
@@ -120,7 +112,8 @@ async function seed() {
     },
   });
 
-  console.log(`Seeded 2 users (password: ${SEED_PASSWORD}).`);
+  // No Supabase accounts are created, so these users can't sign in.
+  console.log('Seeded 2 users.');
   console.log('Seeded 3 authors with 5 books.');
 }
 
